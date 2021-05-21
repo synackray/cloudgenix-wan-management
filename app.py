@@ -24,6 +24,11 @@ def parse_args() -> argparse.Namespace:
         " (default: 4)"
         )
     parser.add_argument(
+        "-m", "--max", type=float, metavar=100,
+        help="Maximum bandwidth capacity allowed in Mbps. This creates a "
+        " ceiling."
+        )
+    parser.add_argument(
         "-p", "--percentile", type=int, default=95, metavar=95,
         help="Number of hours back from current time to calculate metrics for."
         " (default: 95)"
@@ -87,11 +92,17 @@ def main() -> None:
                     site["name"], wan_int["name"]
                     )
                 continue
-            log.info(
-                "Updating site %s WAN interface %s bandwidth capacity.",
-                site["name"], wan_int["name"]
-                )
+            # Set bandwidth ceiling if one provided
+            if args.max:
+                for k, v in metrics_calced.items():
+                    metrics_calced[k] = args.max if v > args.max else v
             # Update link bandwidth values
+            log.info(
+                "Updating site %s WAN interface %s bandwidth capacity "
+                "(%sMbps down / %sMbps up).",
+                site["name"], wan_int["name"], metrics_calced["ingress_mbps"],
+                metrics_calced["egress_mbps"]
+                )
             wan_int["link_bw_down"] = metrics_calced["ingress_mbps"]
             wan_int["link_bw_up"] = metrics_calced["egress_mbps"]
             resp = cgx.put_wan_int(site["id"], wan_int["id"], wan_int)
@@ -131,8 +142,8 @@ def calc_wan_int_capacity(metrics: dict, percentile: int = 95) -> dict:
         ingress_mbps = metrics_in_percent.mean().value
         egress_mbps = metrics_out_percent.mean().value
         result = {
-            "ingress_mbps": f"{ingress_mbps:.2f}",
-            "egress_mbps": f"{egress_mbps:.2f}"
+            "ingress_mbps": round(ingress_mbps, 2),
+            "egress_mbps": round(egress_mbps, 2)
             }
     return result
 
