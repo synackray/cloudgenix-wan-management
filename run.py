@@ -30,7 +30,7 @@ def parse_args() -> argparse.Namespace:
         )
     parser.add_argument(
         "-p", "--percentile", type=int, default=95, metavar=95,
-        help="Number of hours back from current time to calculate metrics for."
+        help="Remove data point outliers by setting X percentile."
         " (default: 95)"
         )
     parser.add_argument(
