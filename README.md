@@ -37,5 +37,6 @@ The arguments present on the command-line version can be set with environment va
 | HOURS                | No       | int  | 4       |
 | MAX                  | No       | int  |         |
 | PERCENTILE           | No       | int  | 95      |
+| TAG                  | No       | str  |         |
 | VERBOSE              | No       | bool | False   |
 

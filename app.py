@@ -34,6 +34,10 @@ def parse_args() -> argparse.Namespace:
         " (default: 95)"
         )
     parser.add_argument(
+        "-t", "--tag", type=str, metavar="Offices",
+        help="Filter spoke sites to those containing the specified tag."
+        )
+    parser.add_argument(
         "-v", "--verbose", action="store_true",
         help="Enable verbose output. Intended for debugging purposes only."
         )
@@ -48,6 +52,7 @@ class EnvironmentArgs:
         self.hours = int(os.getenv("HOURS", 4))
         self.max = int(os.getenv("MAX", 0))
         self.percentile = int(os.getenv("PERCENTILE", 95))
+        self.tag = os.getenv("TAG", "")
         self.verbose = bool(os.getenv("VERBOSE", False))
 
 
@@ -63,9 +68,18 @@ def main() -> None:
     # Collect all sites and filter to spokes
     sites = cgx.get_sites()
     sites = [
-        {"name": s["name"], "id": s["id"]}
+        {"name": s["name"], "id": s["id"], "tags": s["tags"]}
         for s in sites if s["element_cluster_role"] == "SPOKE"
         ]
+    # Filter on tag if specified
+    if args.tag:
+        log.info(
+            "Filtering CloudGenix sites to those containing tag '%s'.", args.tag
+            )
+        sites = [
+            s for s in sites if args.tag.casefold() in
+            map(lambda x: x.casefold(), s["tags"])
+            ]
     log.info("Filtered to %s CloudGenix spoke sites.", len(sites))
     for site in sites:
         log.info(
