@@ -4,6 +4,7 @@
 import argparse
 import time
 import datetime
+import os
 
 import pandas as pd
 from cloudgenix import API
@@ -38,16 +39,27 @@ def parse_args() -> argparse.Namespace:
         help="Enable verbose output. Intended for debugging purposes only."
         )
     args = parser.parse_args()
-    if args.verbose:
-        log.setLevel("DEBUG")
-        log.debug("Log level has been overriden by the --verbose argument.")
     return args
+
+
+class EnvironmentArgs:
+    """Collect environment variables and make them keyname callable"""
+    def __init__(self):
+        self.cloudgenix_token = os.getenv("CGX_TOKEN", "")
+        self.hours = int(os.getenv("HOURS", 4))
+        self.max = int(os.getenv("MAX", 0))
+        self.percentile = int(os.getenv("PERCENTILE", 95))
+        self.verbose = bool(os.getenv("VERBOSE", False))
 
 
 def main() -> None:
     """Main function ran when the script is called directly"""
-    args = parse_args()
-    # Itialize the CloudGenix handler
+    # Determine whether we're running in a container or by a user
+    args = EnvironmentArgs() if os.getenv("CGX_TOKEN", "") else parse_args()
+    if args.verbose:
+        log.setLevel("DEBUG")
+        log.debug("Log level has been overriden by the --verbose argument.")
+    # Initialize the CloudGenix handler
     cgx = CloudGenixHandler(token=args.cloudgenix_token)
     # Collect all sites and filter to spokes
     sites = cgx.get_sites()
@@ -201,7 +213,9 @@ class CloudGenixHandler:
         log.info("Logging in to CloudGenix API.")
         login = self.sdk.interactive.use_token(self.token)
         if not login:
-            log.error("Unable to login to CloudGenix API. Verify the token.")
+            raise ValueError(
+                "Unable to login to CloudGenix API. Verify the token."
+                )
         return login
 
     def get_sites(self) -> list:
