@@ -2,6 +2,8 @@
 
 Currently CloudGenix requires that all WAN circuits within a branch have a manually set bandwidth. This tool leverages the PCM data collected by CloudGenix to calculate WAN circuit capacity and automatically sets the bandwidth values for each circuit based on X interval (default: 4 hours).
 
+![Screenshot of script in action](docs/media/screenshot1.png)
+
 ## Usage
 
 There are two ways to use this script, either by running it directly or running the docker container.
