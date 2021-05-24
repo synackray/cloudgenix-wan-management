@@ -2,7 +2,6 @@
 """Pull CloudGenix PCM data and set WAN circuit bandwidth values automatically"""
 
 import argparse
-import time
 import datetime
 import os
 
