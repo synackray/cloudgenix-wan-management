@@ -76,9 +76,10 @@ def main() -> None:
         log.info(
             "Filtering CloudGenix sites to those containing tag '%s'.", args.tag
             )
+        # Sites with no tags return None so make the map conditional
         sites = [
             s for s in sites if args.tag.casefold() in
-            map(lambda x: x.casefold(), s["tags"])
+            (map(lambda x: x.casefold(), s["tags"]) if s["tags"] else [])
             ]
     log.info("Filtered to %s CloudGenix spoke sites.", len(sites))
     for site in sites:
@@ -89,6 +90,16 @@ def main() -> None:
         # Collect all site WAN interfaces
         wan_ints = cgx.get_wan_ints(site["id"])
         for wan_int in wan_ints:
+            # Filter out WAN interfacess containing the ignore tag
+            if wan_int["tags"]:
+                if "auto_bw:false" in \
+                        map(lambda x: x.casefold(), wan_int["tags"]):
+                    log.info(
+                        "%s WAN interface %s (ID: %s) contains 'auto_bw:false' "
+                        "tag. Skipping.",
+                        site["name"], wan_int["name"], wan_int["id"]
+                        )
+                    continue
             log.info("Retrieving PCM metrics for %s WAN interface %s (ID: %s).",
             site["name"], wan_int["name"], wan_int["id"]
             )

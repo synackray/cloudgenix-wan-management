@@ -44,3 +44,5 @@ The arguments present on the command-line version can be set with environment va
 | TAG                  | No       | str  |         |
 | VERBOSE              | No       | bool | False   |
 
+## Excluding Site Circuits
+Individual circuits can be excluded from the auto adjustment by applying the tag `auto_bw:false` to the site circuit. The script will ignore any circuit with this tag applied.
