@@ -69,10 +69,10 @@ class EnvironmentArgs:
         self.cloudgenix_token = os.getenv("CGX_TOKEN", "")
         self.hours = int(os.getenv("HOURS", 4))
         self.max = int(os.getenv("MAX", 0))
-        self.percentile = int(os.getenv("PERCENTILE", 95))
         self.path_policy = os.getenv("PATH_POLICY", "")
         self.path_min_down = int(os.getenv("PATH_MIN_DOWN", 0))
         self.path_min_up = int(os.getenv("PATH_MIN_UP", 0))
+        self.percentile = int(os.getenv("PERCENTILE", 95))
         self.tag = os.getenv("TAG", "")
         self.verbose = bool(os.getenv("VERBOSE", False))
 
