@@ -4,6 +4,7 @@
 import argparse
 import datetime
 import os
+from typing import Union, Any
 
 import pandas as pd
 from cloudgenix import API
@@ -34,6 +35,18 @@ def parse_args() -> argparse.Namespace:
         " (default: 95)"
         )
     parser.add_argument(
+        "--path-min-down", type=int, metavar=15,
+        help="Minimum download capacity (Mbps) to change path policy."
+        )
+    parser.add_argument(
+        "--path-min-up", type=int, metavar=3,
+        help="Minimum upload capacity (Mbps) to change path policy."
+        )
+    parser.add_argument(
+        "--path-policy", type=str, metavar="High Bandwidth Path Set",
+        help="Name of the path stack to activate for high bandwidth sites."
+        )
+    parser.add_argument(
         "-t", "--tag", type=str, metavar="Offices",
         help="Filter spoke sites to those containing the specified tag."
         )
@@ -42,6 +55,11 @@ def parse_args() -> argparse.Namespace:
         help="Enable verbose output. Intended for debugging purposes only."
         )
     args = parser.parse_args()
+    if args.path_policy and not all((args.path_min_down, args.path_min_down)):
+        parser.error(
+            "The following arguments are required when defining a path policy"
+            "config: --path-policy, --path-min-down, --path-min-up"
+            )
     return args
 
 
@@ -51,6 +69,9 @@ class EnvironmentArgs:
         self.cloudgenix_token = os.getenv("CGX_TOKEN", "")
         self.hours = int(os.getenv("HOURS", 4))
         self.max = int(os.getenv("MAX", 0))
+        self.path_policy = os.getenv("PATH_POLICY", "")
+        self.path_min_down = int(os.getenv("PATH_MIN_DOWN", 0))
+        self.path_min_up = int(os.getenv("PATH_MIN_UP", 0))
         self.percentile = int(os.getenv("PERCENTILE", 95))
         self.tag = os.getenv("TAG", "")
         self.verbose = bool(os.getenv("VERBOSE", False))
@@ -67,10 +88,7 @@ def main() -> None:
     cgx = CloudGenixHandler(token=args.cloudgenix_token)
     # Collect all sites and filter to spokes
     sites = cgx.get_sites()
-    sites = [
-        {"name": s["name"], "id": s["id"], "tags": s["tags"]}
-        for s in sites if s["element_cluster_role"] == "SPOKE"
-        ]
+    sites = [s for s in sites if s["element_cluster_role"] == "SPOKE"]
     # Filter on tag if specified
     if args.tag:
         log.info(
@@ -82,7 +100,23 @@ def main() -> None:
             (map(lambda x: x.casefold(), s["tags"]) if s["tags"] else [])
             ]
     log.info("Filtered to %s CloudGenix spoke sites.", len(sites))
+    # If path policy name provided, get the path policy ID
+    if args.path_policy:
+        path_stacks = cgx.get_policy_stacks()
+        path_policy_id = find_first_dict(path_stacks, "name", args.path_policy)
+        path_policy_id = path_policy_id["id"]
+        default_path_policy = find_first_dict(
+            path_stacks, "default_policysetstack", True)
+        default_path_policy = default_path_policy["id"]
+        if not path_policy_id or not default_path_policy:
+            raise SystemExit(
+                log.error(
+                    "Unable to find policy ID for path policy stack '%s'.",
+                    args.path_policy
+                    )
+                )
     for site in sites:
+        sufficient_broadband = []
         log.info(
             "Retrieving WAN interfaces for site %s (ID: %s).",
             site["name"], site["id"]
@@ -146,6 +180,41 @@ def main() -> None:
                 "CloudGenix API response status %s. Reason: %s",
                 resp.status_code, resp.reason
                 )
+            # Determine if circuit meets requirements for high bandwidth path
+            # policy stack
+            if metrics_calced["ingress_mbps"] >= args.path_min_down \
+                    and metrics_calced["egress_mbps"] >= args.path_min_up:
+                sufficient_broadband.append(wan_int["name"])
+        # Update the site network path policy stack
+        if args.path_policy and sufficient_broadband:
+            log.info(
+                "Site %s WAN interface %s meets minimum requirements "
+                "for high bandwidth path policy set.",
+                site["name"], sufficient_broadband[0]
+                )
+            # Adjust the path policy stack if they don't match
+            if site["network_policysetstack_id"] != path_policy_id:
+                site["network_policysetstack_id"] = path_policy_id
+                cgx.put_site(site["id"], site)
+                log.info("CloudGenix API response status %s. Reason: %s",
+                    resp.status_code, resp.reason
+                    )
+            else:
+                log.info("Current path policy stack is correct. Moving on.")
+        elif args.path_policy and not sufficient_broadband:
+            log.info(
+                "Site %s WAN interfaces do not meet minimum requirements "
+                "for high bandwidth path policy set.",
+                site["name"]
+                )
+            if site["network_policysetstack_id"] != default_path_policy:
+                site["network_policysetstack_id"] = default_path_policy
+                cgx.put_site(site["id"], site)
+                log.info("CloudGenix API response status %s. Reason: %s",
+                    resp.status_code, resp.reason
+                    )
+            else:
+                log.info("Current path policy stack is correct. Moving on.")
 
 
 def calc_wan_int_capacity(metrics: dict, percentile: int = 95) -> dict:
@@ -216,6 +285,18 @@ def format_wan_metrics_query(site_id: str, wan_id: str, hours: int = 4) -> dict:
         }
 
 
+def find_first_dict(lst: list, key: str, value: Any) -> Union[dict, None]:
+    """
+    Attempts to find first occurence of key value pair within a list of dicts
+
+    :param lst: List of dictionaries to search
+    :param key: Key within the dictionary we wish to match
+    :param value: Value within the dictionary we wish to match
+    :return: Matching item in iterable if match else `None`
+    """
+    return next((d for d in lst if d[key] == value), None)
+
+
 class CloudGenixHandler:
     """Handle interactions with the CloudGenix API and SDK"""
     def __init__(self, token: str) -> None:
@@ -241,6 +322,18 @@ class CloudGenixHandler:
                 "Unable to login to CloudGenix API. Verify the token."
                 )
         return login
+
+    def get_policy_stacks(self) -> list:
+        """
+        Retrieve all network path policy stacks within the tenant
+
+        :return: List of CloudGenix site objects
+        """
+        log.info("Retrieving all network path policy stacks.")
+        policies = self.sdk.get.networkpolicysetstacks()
+        policies = policies.cgx_content.get("items", [])
+        log.info("Retrieved %s CloudGenix path policy stacks.", len(policies))
+        return policies
 
     def get_sites(self) -> list:
         """
@@ -275,6 +368,18 @@ class CloudGenixHandler:
         metrics = self.sdk.post.monitor_metrics(query)
         metrics = metrics.cgx_content.get("metrics", [])
         return metrics
+
+    def put_site(self, site_id: str, data: dict) -> dict:
+        """
+        Update a site with the information provided in :param data:
+
+        :param site_id: CloudGenix site ID
+        :param data: CloudGenix site data to PUT as JSON
+        :return: CloudGenix API response to PUT request
+        """
+        log.info("Requesting CloudGenix API PUT for site %s.", site_id)
+        resp = self.sdk.put.sites(site_id, data)
+        return resp
 
     def put_wan_int(self, site_id: str, wan_interface_id: str,
             data: dict) -> dict:
